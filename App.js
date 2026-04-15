@@ -391,6 +391,9 @@ const CalculatorScreen = () => {
 const FiverScreen = () => {
   const [amount, setAmount] = useState('0');
   const [isPayoneer, setIsPayoneer] = useState(true);
+  const [showAddToEarning, setShowAddToEarning] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState('April');
+  const [selectedYear, setSelectedYear] = useState('2026');
 
   const gross = parseFloat(amount) || 0;
   const fiverrFee = gross * 0.2;
@@ -399,6 +402,35 @@ const FiverScreen = () => {
   const processingFee = isPayoneer ? remainingAfterFixed * 0.025 : 0;
   const netUSD = Math.max(0, gross - fiverrFee - fixedFee - processingFee);
   const netPKR = netUSD * 276;
+
+  const addToEarning = async () => {
+    try {
+        const saved = await AsyncStorage.getItem('hisaab_earning_records_v1');
+        let currentRecords = saved ? JSON.parse(saved) : [];
+        const recordIndex = currentRecords.findIndex(r => r.month === selectedMonth && r.year === selectedYear);
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        const historyItem = {
+          id: Date.now().toString(),
+          amount: netPKR,
+          op: '+',
+          type: 'earned',
+          label: 'Fiverr Earning',
+          time: timestamp,
+        };
+
+        if (recordIndex >= 0) {
+            currentRecords[recordIndex].earned += netPKR;
+            currentRecords[recordIndex].history = [historyItem, ...(currentRecords[recordIndex].history || [])];
+        } else {
+            const newId = Date.now().toString();
+            currentRecords = [{ id: newId, month: selectedMonth, year: selectedYear, earned: netPKR, received: 0, history: [historyItem] }, ...currentRecords];
+        }
+        await AsyncStorage.setItem('hisaab_earning_records_v1', JSON.stringify(currentRecords));
+        Alert.alert('Success', `${netPKR.toLocaleString(undefined, { maximumFractionDigits: 0 })} PKR added to ${selectedMonth} ${selectedYear}`);
+        setShowAddToEarning(false);
+    } catch (e) { console.error(e); }
+  };
 
   const handlePress = useCallback((val) => {
     if (val === 'AC') {
@@ -498,16 +530,61 @@ const FiverScreen = () => {
               <Text style={styles.resultLabel}>
                 {isPayoneer ? 'Final PKR Amount' : 'Net USD Revenue'}
               </Text>
-              <Text style={styles.resultValue}>
-                {isPayoneer 
-                  ? `${netPKR.toLocaleString(undefined, { maximumFractionDigits: 0 })} PKR`
-                  : `$${netUSD.toFixed(2)}`
-                }
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text style={styles.resultValue}>
+                  {isPayoneer 
+                    ? `${netPKR.toLocaleString(undefined, { maximumFractionDigits: 0 })} PKR`
+                    : `$${netUSD.toFixed(2)}`
+                  }
+                </Text>
+                {isPayoneer && netPKR > 0 && (
+                  <TouchableOpacity 
+                    style={styles.addToEarningBtn}
+                    onPress={() => setShowAddToEarning(true)}
+                  >
+                    <Plus color="#FFF" size={20} />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           </View>
         </View>
       </View>
+
+      <Modal visible={showAddToEarning} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAddToEarning(false)} />
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add to Earnings</Text>
+              <TouchableOpacity onPress={() => setShowAddToEarning(false)}>
+                <Plus color="#94A3B8" size={24} style={{ transform: [{ rotate: '45deg' }] }} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.recordPickerRow}>
+              <Text style={styles.pickerLabel}>Month</Text>
+              <View style={styles.simplePicker}>
+                <FlatList horizontal showsHorizontalScrollIndicator={false} data={["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]} renderItem={({ item }) => (
+                    <TouchableOpacity onPress={() => setSelectedMonth(item)} style={[styles.pickerItem, selectedMonth === item && styles.pickerItemActive]}>
+                      <Text style={[styles.pickerItemText, selectedMonth === item && styles.pickerItemTextActive]}>{item.slice(0, 3)}</Text>
+                    </TouchableOpacity>
+                  )} keyExtractor={i => i} />
+              </View>
+              <Text style={styles.pickerLabel}>Year</Text>
+              <View style={styles.simplePicker}>
+                <FlatList horizontal showsHorizontalScrollIndicator={false} data={Array.from({ length: 11 }, (_, i) => (2020 + i).toString())} renderItem={({ item }) => (
+                    <TouchableOpacity onPress={() => setSelectedYear(item)} style={[styles.pickerItem, selectedYear === item && styles.pickerItemActive]}>
+                      <Text style={[styles.pickerItemText, selectedYear === item && styles.pickerItemTextActive]}>{item}</Text>
+                    </TouchableOpacity>
+                  )} keyExtractor={i => i} />
+              </View>
+            </View>
+            <TouchableOpacity style={styles.addNowBtn} onPress={addToEarning}>
+              <Text style={styles.addNowBtnText}>Add +{netPKR.toLocaleString(undefined, { maximumFractionDigits: 0 })} PKR</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.fiverKeypad}>
         <View style={styles.aestheticRow}>
@@ -783,12 +860,9 @@ const EarningScreen = () => {
           animationType="slide"
           onRequestClose={() => setShowHistory(false)}
         >
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowHistory(false)}
-          >
-            <View style={[styles.modalContent, { maxHeight: '80%' }]} onStartShouldSetResponder={() => true}>
+          <View style={styles.modalOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowHistory(false)} />
+            <View style={[styles.modalContent, { flexShrink: 1, maxHeight: '80%' }]}>
               <View style={styles.modalHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <History color="#0F172A" size={24} />
@@ -834,7 +908,7 @@ const EarningScreen = () => {
                 )}
               />
             </View>
-          </TouchableOpacity>
+          </View>
         </Modal>
       </View>
     );
@@ -882,12 +956,9 @@ const EarningScreen = () => {
         animationType="fade"
         onRequestClose={() => setShowAdd(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowAdd(false)}
-        >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAdd(false)} />
+          <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Period</Text>
               <TouchableOpacity onPress={() => setShowAdd(false)}>
@@ -937,7 +1008,7 @@ const EarningScreen = () => {
               <Text style={styles.addNowBtnText}>Create Record</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       <FlatList
@@ -971,8 +1042,9 @@ const EarningScreen = () => {
         }}
       />
       <Modal visible={confirmDeleteId !== null} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setConfirmDeleteId(null)}>
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setConfirmDeleteId(null)} />
+          <View style={styles.modalContent}>
             <View style={styles.deleteModalHeader}>
               <View style={styles.deleteIconBox}>
                 <Trash2 color="#EF4444" size={32} />
@@ -989,7 +1061,7 @@ const EarningScreen = () => {
               </TouchableOpacity>
             </View>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </View>
   );
@@ -1176,8 +1248,9 @@ const UdhaarScreen = () => {
         </TouchableOpacity>
 
         <Modal visible={showHistory} transparent animationType="slide">
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowHistory(false)}>
-            <View style={[styles.modalContent, { maxHeight: '80%' }]} onStartShouldSetResponder={() => true}>
+          <View style={styles.modalOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowHistory(false)} />
+            <View style={[styles.modalContent, { flexShrink: 1, maxHeight: '80%' }]}>
               <View style={styles.modalHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <CreditCard color="#0F172A" size={24} />
@@ -1222,7 +1295,7 @@ const UdhaarScreen = () => {
                 )}
               />
             </View>
-          </TouchableOpacity>
+          </View>
         </Modal>
       </View>
     );
@@ -1277,12 +1350,9 @@ const UdhaarScreen = () => {
       </TouchableOpacity>
 
       <Modal visible={showAdd} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowAdd(false)}
-        >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAdd(false)} />
+          <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <View style={styles.modalIconCircle}>
@@ -1316,7 +1386,7 @@ const UdhaarScreen = () => {
               <Text style={styles.addNowBtnText}>Create Record</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       <FlatList
@@ -1349,8 +1419,9 @@ const UdhaarScreen = () => {
       />
 
       <Modal visible={confirmDeleteId !== null} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setConfirmDeleteId(null)}>
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setConfirmDeleteId(null)} />
+          <View style={styles.modalContent}>
             <View style={styles.deleteModalHeader}>
               <View style={styles.deleteIconBox}>
                 <AlertTriangle color="#EF4444" size={32} />
@@ -1367,7 +1438,7 @@ const UdhaarScreen = () => {
               </TouchableOpacity>
             </View>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </View>
   );
@@ -2370,6 +2441,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748B',
     fontWeight: '500',
+  },
+  addToEarningBtn: {
+    backgroundColor: '#10B981',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });
 
